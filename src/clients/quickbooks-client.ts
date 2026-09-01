@@ -7,6 +7,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import open from 'open';
+import { DISABLE_ENV } from '../helpers/register-tool.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -38,7 +39,21 @@ const TOKEN_STORE_PATH =
 // empty-string placeholders a host app (e.g. Claude Desktop) may inject via
 // its env config. This prevents the server from starting with blank
 // REFRESH_TOKEN / REALM_ID even when the host config has those keys set to "".
+//
+// SECURITY EXCEPTION — tool-gating flags: a host that spawns this server with
+// QUICKBOOKS_DISABLE_WRITE/UPDATE/DELETE set is asserting a capability posture
+// (e.g. a read-only server), and a .env sitting next to the module must not be
+// able to widen it. The override pass would clobber those host values before
+// RegisterTool reads them, so snapshot every non-empty host-set flag first and
+// restore it after dotenv runs. Empty-string placeholders remain overridable
+// by the token store, consistent with the rationale above.
+const hostDisableFlags = Object.values(DISABLE_ENV)
+  .map((key) => [key, process.env[key]] as const)
+  .filter(([, value]) => value !== undefined && value !== '');
 dotenv.config({ path: TOKEN_STORE_PATH, override: true });
+for (const [key, value] of hostDisableFlags) {
+  process.env[key] = value;
+}
 
 // Register once at module level — registering inside startOAuthFlow() would
 // accumulate duplicate handlers on every OAuth call.
